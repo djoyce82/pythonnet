@@ -441,7 +441,7 @@ void AddFilesFromDirectoryToTpaList(const char* directory, char** tpaList)
                     addedAssemblies = buf;
 
                     strcat(addedAssemblies, filenameWithoutExt);
-                    strcat(addedAssemblies, ":");
+                    strcat(addedAssemblies, PATH_DELIMITER);
 
                     buf = realloc(
                         *tpaList,
@@ -457,9 +457,9 @@ void AddFilesFromDirectoryToTpaList(const char* directory, char** tpaList)
                     *tpaList = buf;
 
                     strcat(*tpaList, directory);
-                    strcat(*tpaList, "/");
+                    strcat(*tpaList, FS_SEPARATOR);
                     strcat(*tpaList, filename);
-                    strcat(*tpaList, ":");
+                    strcat(*tpaList, PATH_DELIMITER);
                 }
             }
             while (FindNextFileA(fileHandle, &findData));

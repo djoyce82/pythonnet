@@ -12,6 +12,7 @@
 #else
 #include <windows.h>
 #define FS_SEPARATOR "\\"
+#define PATH_DELIMITER ";"
 #ifndef PATH_MAX
 #define PATH_MAX MAX_PATH
 #endif
@@ -206,7 +207,7 @@ void init(PyNet_Args* pn_args)
     }
 
 #ifdef _WIN32
-    if (!GetClrFilesAbsolutePath(pn_args->entry_path, "C:/Program Files/dotnet/shared/Microsoft.NETCore.App/2.1.9", &pn_args->clr_path))
+    if (!GetClrFilesAbsolutePath(pn_args->entry_path, "C:/Program Files/dotnet/shared/Microsoft.NETCore.App/2.2.4", &pn_args->clr_path))
 #else
     if (!GetClrFilesAbsolutePath(pn_args->entry_path, "/usr/share/dotnet/shared/Microsoft.NETCore.App/2.0.0", &pn_args->clr_path))
 #endif
@@ -216,7 +217,6 @@ void init(PyNet_Args* pn_args)
         return;
     }
 
-    fprintf(stdout, "CLR: %s\n", pn_args->clr_path);
     int st = createDelegates(pn_args);
 
     if (SUCCEEDED(st))
@@ -249,9 +249,13 @@ int createDelegates(PyNet_Args * pn_args)
     putenv((char *)("UNW_ARM_UNWIND_METHOD=6"));
 #endif // _ARM_
 
-    char *coreClrDllPath = malloc(strlen(pn_args->clr_path) + strlen(coreClrDll) + 2);
+    char *coreClrDllPath = malloc(strlen(pn_args->clr_path) + strlen(coreClrDll) + 3);
     strcpy(coreClrDllPath, pn_args->clr_path);
+#ifdef _WIN32
+    strcat(coreClrDllPath, FS_SEPARATOR);
+#else
     strcat(coreClrDllPath, "/");
+#endif
     strcat(coreClrDllPath, coreClrDll);
 
     if (strlen(coreClrDllPath) >= PATH_MAX)
@@ -275,7 +279,7 @@ int createDelegates(PyNet_Args * pn_args)
         // Target assembly should be added to the tpa list. Otherwise corerun.exe
         // may find wrong assembly to execute.
         // Details can be found at https://github.com/dotnet/coreclr/issues/5631
-        tpaList = malloc(strlen(appPath) + strlen(pn_args->pr_file) + 3);
+        tpaList = malloc(strlen(appPath) + strlen(pn_args->pr_file) + 4);
 
         if(tpaList == NULL)
         {
@@ -286,9 +290,18 @@ int createDelegates(PyNet_Args * pn_args)
         }
 
         strcpy(tpaList, appPath);
+#ifdef _WIN32
+        strcat(tpaList, FS_SEPARATOR);
+#else
         strcat(tpaList, "/");
+#endif
         strcat(tpaList, pn_args->pr_file);
-        strcat(tpaList, ":");
+
+#ifdef _WIN32
+        strcat(tpaList, PATH_DELIMITER);
+#else
+        strcat(tapList, ":");
+#endif
     }
 
     // Construct native search directory paths
@@ -307,7 +320,11 @@ int createDelegates(PyNet_Args * pn_args)
     }
 
     strcpy(nativeDllSearchDirs, appPath);
+#ifdef _WIN32
+    strcat(nativeDllSearchDirs, PATH_DELIMITER);
+#else
     strcat(nativeDllSearchDirs, ":");
+#endif
     strcat(nativeDllSearchDirs, pn_args->clr_path);
 
     const char *coreLibraries = getenv("CORE_LIBRARIES");
@@ -326,8 +343,11 @@ int createDelegates(PyNet_Args * pn_args)
             }
             return -1;
         }
-
+#ifdef _WIN32
         strcat(nativeDllSearchDirs, ":");
+#else
+        strcat(nativeDllSearchDirs, PATH_DELIMITER);
+#endif
         strcat(nativeDllSearchDirs, coreLibraries);
         if (strcmp(coreLibraries, pn_args->clr_path) != 0)
         {
@@ -338,6 +358,7 @@ int createDelegates(PyNet_Args * pn_args)
     AddFilesFromDirectoryToTpaList(pn_args->clr_path, &tpaList);
 
 #ifdef _WIN32
+
     pn_args->core_clr_lib = LoadLibraryExA(coreClrDllPath, NULL, 0);
 #else
     pn_args->core_clr_lib = dlopen(coreClrDllPath, RTLD_NOW | RTLD_LOCAL);

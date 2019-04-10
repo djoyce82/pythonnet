@@ -40,6 +40,8 @@ const char* GetEnvValueBoolean(const char* envVariable);
 #if defined(__APPLE__)
 #include <mach-o/dyld.h>
 static const char * const coreClrDll = "libcoreclr.dylib";
+#elif _WIN32
+static const char * const coreClrDll = "coreclr.dll";
 #else
 static const char * const coreClrDll = "libcoreclr.so";
 #endif
