@@ -425,10 +425,13 @@ class BuildExtPythonnet(build_ext.build_ext):
         clr_ext = Extension(
             "clr",
             sources=[
-                 "src/coreclrwin/pynetinit.cpp",
-                 "src/coreclrwin/clrmod.cpp",
-                 "src/coreclrwin/coreutils.cpp",
-                 "src/coreclrwin/fileutils.cpp",
+                 "src/coreclr/pynetinit.c",
+                 "src/coreclr/clrmod.c",
+                 "src/coreclr/coreutils.c",
+                #  "src/coreclrwin/pynetinit.cpp",
+                #  "src/coreclrwin/clrmod.cpp",
+                #  "src/coreclrwin/coreutils.cpp",
+                #  "src/coreclrwin/fileutils.cpp",
             ],
         )
 

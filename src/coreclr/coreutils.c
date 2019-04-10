@@ -10,8 +10,19 @@
 
 #include <assert.h>
 #include <ctype.h>
+#ifndef _WIN32
 #include <dirent.h>
 #include <dlfcn.h>
+#include <unistd.h>
+#else
+#include <windows.h>
+#include <tchar.h>
+#define FS_SEPARATOR "\\"
+#define PATH_DELIMITER ";"
+#ifndef PATH_MAX
+#define PATH_MAX MAX_PATH
+#endif
+#endif
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,7 +35,6 @@
 #if defined(HAVE_SYS_SYSCTL_H) || defined(__FreeBSD__)
 #include <sys/sysctl.h>
 #endif
-#include <unistd.h>
 #include "coreutils.h"
 #ifndef SUCCEEDED
 #define SUCCEEDED(Status) ((Status) >= 0)
@@ -116,6 +126,7 @@ bool GetEntrypointExecutableAbsolutePath(char** entrypointExecutable)
     return result;
 }
 
+#ifndef _WIN32
 bool GetAbsolutePath(const char* path, char** absolutePath)
 {
     bool result = false;
@@ -138,6 +149,32 @@ bool GetAbsolutePath(const char* path, char** absolutePath)
 
     return result;
 }
+#else
+bool GetAbsolutePath(const char* path, char** absolutePath)
+{
+    bool result = false;
+
+    TCHAR realPath[PATH_MAX];
+    TCHAR** lppPart = {NULL};
+
+    if (GetFullPathNameA((const TCHAR *) path, PATH_MAX, realPath, lppPart) > 0 && realPath[0] != '\0')
+    {
+        // realpath should return canonicalized path without the trailing slash
+        assert((realPath)[strlen(realPath)-1] != '/');
+
+        *absolutePath = _strdup(realPath);
+        if (*absolutePath == NULL)
+        {
+            perror("Could not allocate buffer for path");
+            return false;
+        }
+
+        result = true;
+    }
+
+    return result;
+}
+#endif
 
 bool GetDirectory(const char* absolutePath, char** directory)
 {
@@ -189,7 +226,7 @@ bool GetClrFilesAbsolutePath(const char* currentExePath, const char* clrFilesPat
 bool AssemblyAlreadyPresent(const char* addedAssemblies, const char* filenameWithoutExt)
 {
     // Copy buffer as strtok munges input
-    char buf[strlen(addedAssemblies) + 1];
+    char *buf = malloc(strlen(addedAssemblies) + 1);
     strcpy(buf, addedAssemblies);
     const char* token = strtok(buf, ":");
 
@@ -197,14 +234,17 @@ bool AssemblyAlreadyPresent(const char* addedAssemblies, const char* filenameWit
     {
         if (strcmp(token, filenameWithoutExt) == 0)
         {
+            free(buf);
             return true;
         }
         token = strtok(NULL, ":");
     }
 
+    free(buf);
     return false;
 }
 
+#ifndef _WIN32
 void AddFilesFromDirectoryToTpaList(const char* directory, char** tpaList)
 {
     const char * const tpaExtensions[] = {
@@ -335,7 +375,103 @@ void AddFilesFromDirectoryToTpaList(const char* directory, char** tpaList)
 
     closedir(dir);
 }
+#else
+void AddFilesFromDirectoryToTpaList(const char* directory, char** tpaList)
+{
+    const char * const tpaExtensions[] = {
+        ".ni.dll",      // Probe for .ni.dll first so that it's preferred if ni and il coexist in the same dir
+        ".dll",
+        ".ni.exe",
+        ".exe",
+    };
 
+    // Initially empty string
+    char* addedAssemblies = malloc(1);
+    if (addedAssemblies == NULL)
+    {
+        perror("Could not allocate buffer");
+        return;
+    }
+
+    addedAssemblies[0] = '\0';
+
+    // Walk the directory for each extension separately so that we first get files with .ni.dll extension,
+    // then files with .dll extension, etc.
+    size_t extIndex;
+    for (extIndex = 0; extIndex < sizeof(tpaExtensions) / sizeof(tpaExtensions[0]); extIndex++)
+    {
+        const char* ext = tpaExtensions[extIndex];
+        size_t extLength = strlen(ext);
+
+        char *searchPath = malloc(strlen(directory) + 3 + strlen(ext));
+        strcpy(searchPath, directory);
+        strcat(searchPath, FS_SEPARATOR);
+        strcat(searchPath, "*");
+        strcat(searchPath, ext);
+
+        WIN32_FIND_DATAA findData;
+        HANDLE fileHandle = FindFirstFileA(searchPath, &findData);
+
+        if (fileHandle != INVALID_HANDLE_VALUE)
+        {
+            do
+            {
+                const char* filename = findData.cFileName;
+                int extPos = strlen(filename) - extLength;
+
+                char *filenameWithoutExt = malloc(strlen(findData.cFileName) - extLength + 1);
+                strncpy(filenameWithoutExt, findData.cFileName, extPos);
+                filenameWithoutExt[extPos] = '\0';
+
+                // Make sure if we have an assembly with multiple extensions present,
+                // we insert only one version of it.
+                if (!AssemblyAlreadyPresent(addedAssemblies, filenameWithoutExt))
+                {
+                    char* buf = realloc(
+                        addedAssemblies,
+                        strlen(addedAssemblies) + strlen(filenameWithoutExt) + 2);
+                    if (buf == NULL)
+                    {
+                        perror("Could not reallocate buffer");
+                        free(addedAssemblies);
+                        free(searchPath);
+                        FindClose(fileHandle);
+                        return;
+                    }
+                    addedAssemblies = buf;
+
+                    strcat(addedAssemblies, filenameWithoutExt);
+                    strcat(addedAssemblies, ":");
+
+                    buf = realloc(
+                        *tpaList,
+                        strlen(*tpaList) + strlen(directory) + strlen(filename) + 3);
+                    if (buf == NULL)
+                    {
+                        perror("Could not reallocate buffer");
+                        free(addedAssemblies);
+                        free(searchPath);
+                        FindClose(fileHandle);
+                        return;
+                    }
+                    *tpaList = buf;
+
+                    strcat(*tpaList, directory);
+                    strcat(*tpaList, "/");
+                    strcat(*tpaList, filename);
+                    strcat(*tpaList, ":");
+                }
+            }
+            while (FindNextFileA(fileHandle, &findData));
+            FindClose(fileHandle);
+        }
+
+        free(searchPath);
+    }
+
+    free(addedAssemblies);
+}
+#endif
 
 const char* GetEnvValueBoolean(const char* envVariable)
 {
