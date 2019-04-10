@@ -9,8 +9,10 @@
 #include "dlfcn.h"
 #include "libgen.h"
 #include "alloca.h"
+#define DEFAULT_CORECLR_FOLDER "/usr/share/dotnet/shared/Microsoft.NETCore.App/2.0.0"
 #else
 #include <windows.h>
+#define DEFAULT_CORECLR_FOLDER "C:/Program Files/dotnet/shared/Microsoft.NETCore.App/2.2.4"
 #ifndef PATH_MAX
 #define PATH_MAX MAX_PATH
 #endif
@@ -201,11 +203,11 @@ void init(PyNet_Args* pn_args)
         return;
     }
 
-#ifdef _WIN32
-    if (!GetClrFilesAbsolutePath(pn_args->entry_path, "C:/Program Files/dotnet/shared/Microsoft.NETCore.App/2.2.4", &pn_args->clr_path))
-#else
-    if (!GetClrFilesAbsolutePath(pn_args->entry_path, "/usr/share/dotnet/shared/Microsoft.NETCore.App/2.0.0", &pn_args->clr_path))
-#endif
+    const char *coreclr_folder = getenv("CORECLR_HOME");
+    if (!GetClrFilesAbsolutePath(
+            pn_args->entry_path,
+            coreclr_folder != NULL ? coreclr_folder : DEFAULT_CORECLR_FOLDER,
+            &pn_args->clr_path))
     //if (!GetClrFilesAbsolutePath(pn_args->entry_path, NULL, &pn_args->clr_path)))
     {
         pn_args->error = "Unable to find clr path";
