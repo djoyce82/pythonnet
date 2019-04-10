@@ -14,6 +14,8 @@
 #include <dirent.h>
 #include <dlfcn.h>
 #include <unistd.h>
+#define FS_SEPARATOR "/"
+#define PATH_DELIMITER ":"
 #else
 #include <windows.h>
 #include <tchar.h>
@@ -45,6 +47,58 @@
 #elif !defined(__APPLE__)
 #define symlinkEntrypointExecutable "/proc/curproc/exe"
 #endif
+
+char *AppendPath(const char *folder, const char *dirOrFile, bool withDelimiter)
+{
+    size_t totalSize = strlen(folder) + strlen(dirOrFile) + strlen(FS_SEPARATOR) + 1 + (withDelimiter ? 1 : 0);
+    char *res = malloc(totalSize);
+
+    if (res == NULL) {
+        return NULL;
+    }
+
+    strcpy_s(res, totalSize, folder);
+    strcat_s(res, totalSize, FS_SEPARATOR);
+    strcat_s(res, totalSize, dirOrFile);
+    if (withDelimiter != NULL)
+    {
+        strcat_s(res, totalSize, PATH_DELIMITER);
+    }
+
+    return res;
+}
+
+char *AppendWithDelimiter(const char *path1, const char *path2)
+{
+    size_t totalSize = strlen(path1) + strlen(path2) + strlen(PATH_DELIMITER) + 1;
+    char *res = malloc(totalSize);
+
+    if (res == NULL) {
+        return NULL;
+    }
+
+    strcpy_s(res, totalSize, path1);
+    strcat_s(res, totalSize, PATH_DELIMITER);
+    strcat_s(res, totalSize, path2);
+
+    return res;
+}
+
+char *AppendAndReallocWithDelimiter(char *base, const char *path2)
+{
+    size_t initialSize = strlen(base);
+    size_t extraSize = strlen(path2) + strlen(PATH_DELIMITER) + 1;
+    base = realloc(base, extraSize);
+
+    if (base == NULL) {
+        return NULL;
+    }
+
+    strcat_s(base, extraSize + initialSize, PATH_DELIMITER);
+    strcat_s(base, extraSize + initialSize, path2);
+
+    return base;
+}
 
 bool GetEntrypointExecutableAbsolutePath(char** entrypointExecutable)
 {

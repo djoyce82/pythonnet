@@ -11,8 +11,6 @@
 #include "alloca.h"
 #else
 #include <windows.h>
-#define FS_SEPARATOR "\\"
-#define PATH_DELIMITER ";"
 #ifndef PATH_MAX
 #define PATH_MAX MAX_PATH
 #endif
@@ -161,10 +159,7 @@ void init(PyNet_Args* pn_args)
         }
         free(curdir);
 #else
-        char *searchPath = malloc(strlen(curdir) + 3);
-        strcpy(searchPath, curdir);
-        strcat(searchPath, FS_SEPARATOR);
-        strcat(searchPath, "*");
+        char *searchPath = AppendPath(curdir, "*", FALSE);
 
         WIN32_FIND_DATAA findData;
         HANDLE fileHandle = FindFirstFileA(searchPath, &findData);
@@ -249,14 +244,7 @@ int createDelegates(PyNet_Args * pn_args)
     putenv((char *)("UNW_ARM_UNWIND_METHOD=6"));
 #endif // _ARM_
 
-    char *coreClrDllPath = malloc(strlen(pn_args->clr_path) + strlen(coreClrDll) + 3);
-    strcpy(coreClrDllPath, pn_args->clr_path);
-#ifdef _WIN32
-    strcat(coreClrDllPath, FS_SEPARATOR);
-#else
-    strcat(coreClrDllPath, "/");
-#endif
-    strcat(coreClrDllPath, coreClrDll);
+    char *coreClrDllPath = AppendPath(pn_args->clr_path, coreClrDll, FALSE);
 
     if (strlen(coreClrDllPath) >= PATH_MAX)
     {
@@ -279,7 +267,8 @@ int createDelegates(PyNet_Args * pn_args)
         // Target assembly should be added to the tpa list. Otherwise corerun.exe
         // may find wrong assembly to execute.
         // Details can be found at https://github.com/dotnet/coreclr/issues/5631
-        tpaList = malloc(strlen(appPath) + strlen(pn_args->pr_file) + 4);
+//        tpaList = malloc(strlen(appPath) + strlen(pn_args->pr_file) + 4);
+        tpaList = AppendPath(appPath, pn_args->pr_file, TRUE);
 
         if(tpaList == NULL)
         {
@@ -288,24 +277,10 @@ int createDelegates(PyNet_Args * pn_args)
             free(coreClrDllPath);
             return -1;
         }
-
-        strcpy(tpaList, appPath);
-#ifdef _WIN32
-        strcat(tpaList, FS_SEPARATOR);
-#else
-        strcat(tpaList, "/");
-#endif
-        strcat(tpaList, pn_args->pr_file);
-
-#ifdef _WIN32
-        strcat(tpaList, PATH_DELIMITER);
-#else
-        strcat(tapList, ":");
-#endif
     }
 
     // Construct native search directory paths
-    char* nativeDllSearchDirs = malloc(strlen(appPath) + strlen(pn_args->clr_path) + 2);
+    char* nativeDllSearchDirs = AppendWithDelimiter(appPath, pn_args->clr_path);
 
     if (nativeDllSearchDirs == NULL)
     {
@@ -319,18 +294,10 @@ int createDelegates(PyNet_Args * pn_args)
         return -1;
     }
 
-    strcpy(nativeDllSearchDirs, appPath);
-#ifdef _WIN32
-    strcat(nativeDllSearchDirs, PATH_DELIMITER);
-#else
-    strcat(nativeDllSearchDirs, ":");
-#endif
-    strcat(nativeDllSearchDirs, pn_args->clr_path);
-
     const char *coreLibraries = getenv("CORE_LIBRARIES");
     if (coreLibraries)
     {
-        nativeDllSearchDirs = realloc(nativeDllSearchDirs, strlen(coreLibraries) + 2);
+        nativeDllSearchDirs = AppendAndReallocWithDelimiter(nativeDllSearchDirs, coreLibraries);
 
         if (nativeDllSearchDirs == NULL)
         {
@@ -343,12 +310,7 @@ int createDelegates(PyNet_Args * pn_args)
             }
             return -1;
         }
-#ifdef _WIN32
-        strcat(nativeDllSearchDirs, ":");
-#else
-        strcat(nativeDllSearchDirs, PATH_DELIMITER);
-#endif
-        strcat(nativeDllSearchDirs, coreLibraries);
+
         if (strcmp(coreLibraries, pn_args->clr_path) != 0)
         {
             AddFilesFromDirectoryToTpaList(coreLibraries, &tpaList);
