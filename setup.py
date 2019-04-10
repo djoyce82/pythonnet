@@ -188,7 +188,7 @@ def _get_long_description():
 def _update_xlat_devtools():
     global DEVTOOLS
     if DEVTOOLS == "MsDev":
-        DEVTOOLS = "MsDev15"
+        DEVTOOLS = "dotnet"
     elif DEVTOOLS == "Mono":
         DEVTOOLS = "dotnet"
 
@@ -302,6 +302,11 @@ class BuildExtPythonnet(build_ext.build_ext):
             _config = "{0}Win".format(CONFIG)
             _solution_file = "pythonnet.sln"
             _custom_define_constants = False
+        elif DEVTOOLS == "dotnet" and sys.platform == "win32":
+            _xbuild = "dotnet msbuild"
+            _config = "{0}Win".format(CONFIG)
+            _solution_file = "pythonnet.15.sln"
+            _custom_define_constants = True
         elif DEVTOOLS == "MsDev15":
             _xbuild = '"{0}"'.format(self._find_msbuild_tool_15())
             _config = "{0}Win".format(CONFIG)
@@ -359,7 +364,9 @@ class BuildExtPythonnet(build_ext.build_ext):
             )
         if DEVTOOLS == "Mono":
             self._build_monoclr()
-        if DEVTOOLS == "dotnet":
+        if DEVTOOLS == "dotnet" and sys.platform == "win32":
+            self._build_coreclrwin()
+        elif DEVTOOLS == "dotnet":
             self._build_coreclr()
 
     def _get_manifest(self, build_dir):
@@ -408,6 +415,20 @@ class BuildExtPythonnet(build_ext.build_ext):
                  "src/coreclr/pynetinit.c",
                  "src/coreclr/clrmod.c",
                  "src/coreclr/coreutils.c",
+            ],
+        )
+
+        build_ext.build_ext.build_extension(self, clr_ext)
+
+    def _build_coreclrwin(self):
+        # build the clr python module
+        clr_ext = Extension(
+            "clr",
+            sources=[
+                 "src/coreclrwin/pynetinit.cpp",
+                 "src/coreclrwin/clrmod.cpp",
+                 "src/coreclrwin/coreutils.cpp",
+                 "src/coreclrwin/fileutils.cpp",
             ],
         )
 
