@@ -364,9 +364,7 @@ class BuildExtPythonnet(build_ext.build_ext):
             )
         if DEVTOOLS == "Mono":
             self._build_monoclr()
-        if DEVTOOLS == "dotnet" and sys.platform == "win32":
-            self._build_coreclrwin()
-        elif DEVTOOLS == "dotnet":
+        if DEVTOOLS == "dotnet":
             self._build_coreclr()
 
     def _get_manifest(self, build_dir):
@@ -415,23 +413,6 @@ class BuildExtPythonnet(build_ext.build_ext):
                  "src/coreclr/pynetinit.c",
                  "src/coreclr/clrmod.c",
                  "src/coreclr/coreutils.c",
-            ],
-        )
-
-        build_ext.build_ext.build_extension(self, clr_ext)
-
-    def _build_coreclrwin(self):
-        # build the clr python module
-        clr_ext = Extension(
-            "clr",
-            sources=[
-                 "src/coreclr/pynetinit.c",
-                 "src/coreclr/clrmod.c",
-                 "src/coreclr/coreutils.c",
-                #  "src/coreclrwin/pynetinit.cpp",
-                #  "src/coreclrwin/clrmod.cpp",
-                #  "src/coreclrwin/coreutils.cpp",
-                #  "src/coreclrwin/fileutils.cpp",
             ],
         )
 
