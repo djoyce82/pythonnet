@@ -192,7 +192,7 @@ def _get_long_description():
 def _update_xlat_devtools():
     global DEVTOOLS
     if DEVTOOLS == "MsDev":
-        DEVTOOLS = "MsDev15"
+        DEVTOOLS = "dotnet"
     elif DEVTOOLS == "Mono":
         DEVTOOLS = "dotnet"
 
@@ -306,6 +306,11 @@ class BuildExtPythonnet(build_ext.build_ext):
             _config = "{0}Win".format(CONFIG)
             _solution_file = "pythonnet.sln"
             _custom_define_constants = False
+        elif DEVTOOLS == "dotnet" and sys.platform == "win32":
+            _xbuild = "dotnet msbuild"
+            _config = "{0}Win".format(CONFIG)
+            _solution_file = "pythonnet.15.sln"
+            _custom_define_constants = True
         elif DEVTOOLS == "MsDev15":
             _xbuild = '"{0}"'.format(self._find_msbuild_tool_15())
             _config = "{0}Win".format(CONFIG)

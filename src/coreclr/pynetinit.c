@@ -9,6 +9,19 @@
 #include "dlfcn.h"
 #include "libgen.h"
 #include "alloca.h"
+#define CORECLR_HOME "/usr/share/dotnet/shared/Microsoft.NETCore.App/2.0.0"
+#define GET_SYMBOL_ADDRESS dlsym
+#define CLOSE_LIBRARY dlclose
+#define LOAD_LIBRARY(a) dlopen(a, RTLD_NOW | RTLD_LOCAL)
+#else
+#include <windows.h>
+#define CORECLR_HOME "C:/Program Files/dotnet/shared/Microsoft.NETCore.App/2.2.4"
+#define GET_SYMBOL_ADDRESS GetProcAddress
+#define CLOSE_LIBRARY FindClose
+#define LOAD_LIBRARY(a) LoadLibraryExA(a, NULL, 0)
+#ifndef PATH_MAX
+#define PATH_MAX MAX_PATH
+#endif
 #endif
 
 #ifndef SUCCEEDED
@@ -69,7 +82,7 @@ void PyNet_Finalize(PyNet_Args *pn_args)
     // Shutdown Core CLR
     if (pn_args->core_clr_lib)
     {
-        coreclr_shutdown_2_ptr shutdownCoreCLR = (coreclr_shutdown_2_ptr)dlsym(pn_args->core_clr_lib, "coreclr_shutdown_2");
+        coreclr_shutdown_2_ptr shutdownCoreCLR = (coreclr_shutdown_2_ptr)GET_SYMBOL_ADDRESS(pn_args->core_clr_lib, "coreclr_shutdown_2");
 
         if (shutdownCoreCLR == NULL)
         {
@@ -90,8 +103,7 @@ void PyNet_Finalize(PyNet_Args *pn_args)
                 exitCode = latchedExitCode;
             }
         }
-
-        if (dlclose(pn_args->core_clr_lib) != 0)
+        if (CLOSE_LIBRARY(pn_args->core_clr_lib) != 0)
         {
             fprintf(stderr, "Warning - dlclose failed\n");
         }
@@ -102,7 +114,6 @@ void PyNet_Finalize(PyNet_Args *pn_args)
 
 void init(PyNet_Args* pn_args)
 {
-#ifndef _WIN32
     //get python path system variable
     PyObject *syspath = PySys_GetObject("path");
     pn_args->assembly_path = malloc(PATH_MAX);
@@ -130,8 +141,8 @@ void init(PyNet_Args* pn_args)
 #if PY_MAJOR_VERSION >= 3
         free(pydir);
 #endif
-
         //look in this directory for the pn_args->pr_file
+#ifndef _WIN32
         DIR *dirp = opendir(curdir);
         if (dirp != NULL)
         {
@@ -148,7 +159,31 @@ void init(PyNet_Args* pn_args)
             closedir(dirp);
         }
         free(curdir);
+#else
+        char *searchPath = AppendPath(curdir, "*", FALSE);
 
+        WIN32_FIND_DATAA findData;
+        HANDLE fileHandle = FindFirstFileA(searchPath, &findData);
+
+        if (fileHandle != INVALID_HANDLE_VALUE)
+        {
+            do
+            {
+                const char* filename = findData.cFileName;
+
+                if (strcmp(filename, pn_args->pr_file) == 0)
+                {
+                    strcpy(pn_args->assembly_path, curdir);
+                    found = 1;
+                    break;
+                }
+            }
+            while (FindNextFileA(fileHandle, &findData));
+            FindClose(fileHandle);
+        }
+
+        free(searchPath);
+#endif
         if (found)
         {
             break;
@@ -160,7 +195,6 @@ void init(PyNet_Args* pn_args)
         fprintf(stderr, "Could not find assembly %s. \n", pn_args->pr_file);
         return;
     }
-#endif
 
     if (!GetEntrypointExecutableAbsolutePath(&pn_args->entry_path))
     {
@@ -168,8 +202,11 @@ void init(PyNet_Args* pn_args)
         return;
     }
 
-    if (!GetClrFilesAbsolutePath(pn_args->entry_path, "/usr/share/dotnet/shared/Microsoft.NETCore.App/2.0.0", &pn_args->clr_path))
-    //if (!GetClrFilesAbsolutePath(pn_args->entry_path, NULL, &pn_args->clr_path)))
+    const char *coreclr_home = getenv("CORECLR_HOME");
+    if (!GetClrFilesAbsolutePath(
+            pn_args->entry_path,
+            coreclr_home != NULL ? coreclr_home : CORECLR_HOME,
+            &pn_args->clr_path))
     {
         pn_args->error = "Unable to find clr path";
         return;
@@ -182,10 +219,8 @@ void init(PyNet_Args* pn_args)
         pn_args->module = pn_args->init();
     }
 
-#ifndef _WIN32
     free(pn_args->assembly_path);
     free(pn_args->entry_path);
-#endif
 }
 
 int createDelegates(PyNet_Args * pn_args)
@@ -207,14 +242,12 @@ int createDelegates(PyNet_Args * pn_args)
     putenv((char *)("UNW_ARM_UNWIND_METHOD=6"));
 #endif // _ARM_
 
-    char coreClrDllPath[strlen(pn_args->clr_path) + strlen(coreClrDll) + 2];
-    strcpy(coreClrDllPath, pn_args->clr_path);
-    strcat(coreClrDllPath, "/");
-    strcat(coreClrDllPath, coreClrDll);
+    char *coreClrDllPath = AppendPath(pn_args->clr_path, coreClrDll, FALSE);
 
     if (strlen(coreClrDllPath) >= PATH_MAX)
     {
         fprintf(stderr, "Absolute path to libcoreclr.so too long\n");
+        free(coreClrDllPath);
         return -1;
     }
 
@@ -222,6 +255,7 @@ int createDelegates(PyNet_Args * pn_args)
     char* appPath = NULL;
     if (!GetDirectory(pn_args->assembly_path, &appPath))
     {
+        free(coreClrDllPath);
         return -1;
     }
 
@@ -231,28 +265,26 @@ int createDelegates(PyNet_Args * pn_args)
         // Target assembly should be added to the tpa list. Otherwise corerun.exe
         // may find wrong assembly to execute.
         // Details can be found at https://github.com/dotnet/coreclr/issues/5631
-        tpaList = malloc(strlen(appPath) + strlen(pn_args->pr_file) + 3);
+//        tpaList = malloc(strlen(appPath) + strlen(pn_args->pr_file) + 4);
+        tpaList = AppendPath(appPath, pn_args->pr_file, TRUE);
 
         if(tpaList == NULL)
         {
             perror("Could not allocate buffer");
             free(appPath);
+            free(coreClrDllPath);
             return -1;
         }
-
-        strcpy(tpaList, appPath);
-        strcat(tpaList, "/");
-        strcat(tpaList, pn_args->pr_file);
-        strcat(tpaList, ":");
     }
 
     // Construct native search directory paths
-    char* nativeDllSearchDirs = malloc(strlen(appPath) + strlen(pn_args->clr_path) + 2);
+    char* nativeDllSearchDirs = AppendWithDelimiter(appPath, pn_args->clr_path);
 
     if (nativeDllSearchDirs == NULL)
     {
         perror("Could not allocate buffer");
         free(appPath);
+        free(coreClrDllPath);
         if (tpaList != NULL)
         {
             free(tpaList);
@@ -260,19 +292,16 @@ int createDelegates(PyNet_Args * pn_args)
         return -1;
     }
 
-    strcpy(nativeDllSearchDirs, appPath);
-    strcat(nativeDllSearchDirs, ":");
-    strcat(nativeDllSearchDirs, pn_args->clr_path);
-
     const char *coreLibraries = getenv("CORE_LIBRARIES");
     if (coreLibraries)
     {
-        nativeDllSearchDirs = realloc(nativeDllSearchDirs, strlen(coreLibraries) + 2);
+        nativeDllSearchDirs = AppendAndReallocWithDelimiter(nativeDllSearchDirs, coreLibraries);
 
         if (nativeDllSearchDirs == NULL)
         {
             perror("Could not reallocate buffer");
             free(appPath);
+            free(coreClrDllPath);
             if (tpaList != NULL)
             {
                 free(tpaList);
@@ -280,8 +309,6 @@ int createDelegates(PyNet_Args * pn_args)
             return -1;
         }
 
-        strcat(nativeDllSearchDirs, ":");
-        strcat(nativeDllSearchDirs, coreLibraries);
         if (strcmp(coreLibraries, pn_args->clr_path) != 0)
         {
             AddFilesFromDirectoryToTpaList(coreLibraries, &tpaList);
@@ -290,12 +317,12 @@ int createDelegates(PyNet_Args * pn_args)
 
     AddFilesFromDirectoryToTpaList(pn_args->clr_path, &tpaList);
 
-    pn_args->core_clr_lib = dlopen(coreClrDllPath, RTLD_NOW | RTLD_LOCAL);
+    pn_args->core_clr_lib = LOAD_LIBRARY(coreClrDllPath);
 
     if (pn_args->core_clr_lib != NULL)
     {
-        coreclr_initialize_ptr initializeCoreCLR = (coreclr_initialize_ptr)dlsym(pn_args->core_clr_lib, "coreclr_initialize");
-        coreclr_create_delegate_ptr createDelegate = (coreclr_create_delegate_ptr)dlsym(pn_args->core_clr_lib, "coreclr_create_delegate");
+        coreclr_initialize_ptr initializeCoreCLR = (coreclr_initialize_ptr)GET_SYMBOL_ADDRESS(pn_args->core_clr_lib, "coreclr_initialize");
+        coreclr_create_delegate_ptr createDelegate = (coreclr_create_delegate_ptr)GET_SYMBOL_ADDRESS(pn_args->core_clr_lib, "coreclr_create_delegate");
 
         if (initializeCoreCLR == NULL)
         {
@@ -406,11 +433,16 @@ int createDelegates(PyNet_Args * pn_args)
     }
     else
     {
-        const char* error = dlerror();
-        fprintf(stderr, "dlopen failed to open the libcoreclr.so with error %s\n", error);
+        #ifdef _WIN32
+                fprintf(stderr, "LoadLibraryExA failed to open the coreclr.dll\n");
+        #else
+                const char* error = dlerror();
+                fprintf(stderr, "dlopen failed to open the libcoreclr.so with error %s\n", error);
+        #endif
     }
 
     free(appPath);
+    free(coreClrDllPath);
     free(tpaList);
     free(nativeDllSearchDirs);
 

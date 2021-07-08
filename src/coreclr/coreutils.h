@@ -9,6 +9,11 @@
 
 // https://github.com/dotnet/coreclr/blob/master/src/coreclr/hosts/unixcoreruncommon/coreruncommon.h
 
+// Appends a file or path into folder returning the new path following the platform constraints
+char *AppendPath(const char *folder, const char *dirOrFile, bool appendDelimiter);
+char *AppendWithDelimiter(const char *path1, const char *path2);
+char *AppendAndReallocWithDelimiter(char *base, const char *path2);
+
 // Get the path to entrypoint executable
 bool GetEntrypointExecutableAbsolutePath(char** entrypointExecutable);
 
@@ -40,6 +45,8 @@ const char* GetEnvValueBoolean(const char* envVariable);
 #if defined(__APPLE__)
 #include <mach-o/dyld.h>
 static const char * const coreClrDll = "libcoreclr.dylib";
+#elif _WIN32
+static const char * const coreClrDll = "coreclr.dll";
 #else
 static const char * const coreClrDll = "libcoreclr.so";
 #endif

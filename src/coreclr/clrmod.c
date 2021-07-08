@@ -12,7 +12,9 @@ PyDoc_STRVAR(clr_module_doc,
 );
 
 static PyNet_Args *pn_args;
+#ifndef _WIN32
 char **environ = NULL;
+#endif
 
 #if PY_MAJOR_VERSION >= 3
 static struct PyModuleDef clrdef = {
